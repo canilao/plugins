@@ -150,7 +150,7 @@ func rollCharacter(command *bot.Cmd) (msg string) {
 func createCharacter(command *bot.Cmd) (msg string, err error) {
     var buffer bytes.Buffer
     // To create a character we need to be in an idle state.  
-    if currentGameStateId != IdleState {
+    if currentGameStateId != IdleState || isInParty(command) {
         buffer.WriteString(command.User.Nick)
         buffer.WriteString(" cannot create a character now")
     } else {
@@ -212,12 +212,25 @@ func isInParty(command *bot.Cmd) (bool) {
     return inParty
 }
 
+func removeFromParty(command *bot.Cmd) {
+    var index int
+    for i, v := range theParty {
+        if v.Name == command.User.Nick {
+            index = i
+            break
+        }
+    }
+    theParty = append(theParty[:index], theParty[index+1:]...)
+}
+
 func leaveParty(command *bot.Cmd) (msg string, err error) {
     var buffer bytes.Buffer
     if currentGameStateId != IdleState || !isInParty(command) {
         buffer.WriteString(command.User.Nick)
         buffer.WriteString(" can't leave the party now")
     } else if _, ok := characters[command.User.Nick]; ok {
+        // Physically removes the user's character from the party array.
+        removeFromParty(command)
         buffer.WriteString(command.User.Nick)
         buffer.WriteString(" left the party")
     } else {
@@ -235,7 +248,7 @@ func listParty(command *bot.Cmd) (msg string, err error) {
     } else {
         for _, element := range theParty {
             if !first {
-                buffer.WriteString(" ,")
+                buffer.WriteString(", ")
             }
             buffer.WriteString(element.Name)
             buffer.WriteString(" <")
