@@ -21,8 +21,8 @@ type gameStateId int
 
 const (
     // Game state enumeration
-    IdleState gameStateId = iota
-    EncounterState
+    TownState gameStateId = iota
+    TravelState
 )
 
 type class int
@@ -31,6 +31,16 @@ const (
     // Game state enumeration
     Fighter class = iota
     Rogue
+)
+
+type direction int
+
+const (
+    // Direction enumeration 
+    North direction = iota
+    East
+    South
+    West
 )
 
 const (
@@ -42,7 +52,7 @@ var (
     // Random number generator
     rnd = rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
     // This holds the current game state. 
-    currentGameStateId gameStateId = IdleState
+    currentGameStateId gameStateId = TownState
     // This array holds the state objects.
     gameStates []gameState
     // Current user creating a character.
@@ -58,6 +68,10 @@ type gameState interface {
     name() string
     // This describes the current state.
     describe() string
+    // This describes the transitioning into the state. 
+    describeTransition() string
+    // Handles the movement 
+    move(dir direction, command *bot.Cmd) string
 }
 
 type character struct {
@@ -83,37 +97,66 @@ func (char character) classString() string {
     return buffer.String()
 }
 
-type idleState struct {
+type townState struct {
 }
 
-func (is idleState) describe() string {
-    return "You are in the town of Waterdeep taking care of various kinds of \"business\"...  If you would to join a party going to the nearby dungeon, type !joinparty"
+func (ts townState) describeTransition() string {
+    return "After a long trek through the nearby canyon, you finally enter the town of Waterdeep. The town is bustling with activity. Here is your chance to take care of some business."
 }
 
-func (is idleState) name() string {
-    return "Idle"
+
+func (ts townState) describe() string {
+    return "You are in the town of Waterdeep taking care of various kinds of \"business\"...  <joinparty> to visit the nearby dungeon to the <north>"
 }
 
-type encounterState struct {
+func (ts townState) name() string {
+    return "TownState"
 }
 
-func (en encounterState) describe() string {
-    return "Encounter State"
+func (ts townState) move(dir direction, command *bot.Cmd) string {
+    var buffer bytes.Buffer
+    if dir == North {
+        buffer.WriteString(changeState(TravelState))
+    } else if dir == East {
+        buffer.WriteString("Invalid direction")
+    } else if dir == South {
+        buffer.WriteString("Invalid direction")
+    } else if dir == West {
+        buffer.WriteString("Invalid direction")
+    }
+    return buffer.String()
 }
 
-func (en encounterState) name() string {
-    return "Encounter"
+type travelState struct {
 }
 
-type characterCreationState struct {
+func (tv travelState) name() string {
+    return "Leave Town"
 }
 
-func (cc characterCreationState) describe() string {
-    return "Character Creation State"
+func (tv travelState) describeTransition() string {
+    var buffer bytes.Buffer
+    buffer.WriteString(theParty[0].Name)
+    buffer.WriteString(" leads the party out of town towards the Black Water Mines")
+    return buffer.String()
 }
 
-func (cc characterCreationState) name() string {
-    return "Character Creation"
+func (tv travelState) describe() string {
+    return "You've hiked several hours through the canyon that began just outside of town. Now, just before you is a rather small entrance to the Black Water Mines. As you look closer, you can smell a musty, dank odor as the wind howls, blowing outward from the entrance. What could be lurking inside? !move <north> into the mines or !move <south> to go back to town."
+}
+
+func (tv travelState) move(dir direction, command *bot.Cmd) string {
+    var buffer bytes.Buffer
+    if dir == North {
+        buffer.WriteString("Invalid direction")
+    } else if dir == East {
+        buffer.WriteString("Invalid direction")
+    } else if dir == South {
+        buffer.WriteString(changeState(TownState))
+    } else if dir == West {
+        buffer.WriteString("Invalid direction")
+    }
+    return buffer.String()
 }
 
 func rollCharacter(command *bot.Cmd) (msg string) {
@@ -149,8 +192,8 @@ func rollCharacter(command *bot.Cmd) (msg string) {
 
 func createCharacter(command *bot.Cmd) (msg string, err error) {
     var buffer bytes.Buffer
-    // To create a character we need to be in an idle state.  
-    if currentGameStateId != IdleState {
+    // To create a character we need to be in an town state.  
+    if currentGameStateId != TownState {
         buffer.WriteString(command.User.Nick)
         buffer.WriteString(" cannot create a character now")
     } else {
@@ -182,7 +225,7 @@ func characterStats(command *bot.Cmd) (msg string, err error) {
 
 func joinParty(command *bot.Cmd) (msg string, err error) {
     var buffer bytes.Buffer
-    if currentGameStateId != IdleState {
+    if currentGameStateId != TownState {
         buffer.WriteString(command.User.Nick)
         buffer.WriteString(" can't join the party now")
     } else if _, ok := characters[command.User.Nick]; ok {
@@ -214,7 +257,7 @@ func isInParty(command *bot.Cmd) (bool) {
 
 func leaveParty(command *bot.Cmd) (msg string, err error) {
     var buffer bytes.Buffer
-    if currentGameStateId != IdleState || !isInParty(command) {
+    if currentGameStateId != TownState || !isInParty(command) {
         buffer.WriteString(command.User.Nick)
         buffer.WriteString(" can't leave the party now")
     } else if _, ok := characters[command.User.Nick]; ok {
@@ -245,6 +288,30 @@ func listParty(command *bot.Cmd) (msg string, err error) {
         }
     }
 
+    return buffer.String(), nil
+}
+
+func move(command *bot.Cmd) (msg string, err error) {
+    var buffer bytes.Buffer
+    if len(theParty) == 0 {
+        buffer.WriteString("No one is in the party")
+    } else if theParty[0].Name != command.User.Nick {
+        buffer.WriteString("You are not the leader of the party")
+    } else {
+        if len(command.Args) == 0  {
+            buffer.WriteString("Invalid direction")
+        } else if command.Args[0] == "north" {
+            buffer.WriteString(gameStates[currentGameStateId].move(North, command))
+        } else if command.Args[0] == "east" {
+            buffer.WriteString(gameStates[currentGameStateId].move(East, command))
+        } else if command.Args[0] == "south" {
+            buffer.WriteString(gameStates[currentGameStateId].move(South, command))
+        } else if command.Args[0] == "west" {
+            buffer.WriteString(gameStates[currentGameStateId].move(West, command))
+        } else {
+            buffer.WriteString("Invalid direction")
+        }
+    }
     return buffer.String(), nil
 }
 
@@ -286,19 +353,20 @@ func rollDice(dice string) (int) {
     return total
 }
 
+func changeState(newStateId gameStateId) string {
+    currentGameStateId = newStateId
+    return gameStates[currentGameStateId].describeTransition()
+}
+
 // Initializes or Sets up the game 
 func initializeGame() {
-    // Initialize idle state 
-    is := idleState{}
-    gameStates = append(gameStates, is)
+    // Initialize town state 
+    ts := townState{}
+    gameStates = append(gameStates, ts)
 
-    // Initialize encounter state 
-    en := encounterState{}
-    gameStates = append(gameStates, en)
-
-    // Initialize character creation state 
-    cc := characterCreationState{}
-    gameStates = append(gameStates, cc)
+    // Initialize travel state 
+    tv := travelState{}
+    gameStates = append(gameStates, tv)
 }
 
 func init() {
@@ -340,4 +408,10 @@ func init() {
         "Lists the members of the party",
         "",
         listParty)
+
+    bot.RegisterCommand(
+        "move",
+        "Moves the party in the given direction",
+        "",
+        move)
 }
