@@ -7,12 +7,12 @@ import (
     "strconv"
     "time"
     "math/rand"
+    "strings"
 //  "github.com/go-chat-bot/bot/irc"
 //  "fmt"
 //  "net/http"
 //  "net/url"
 //  "io/ioutil"
-//  "strings"
 //  "os"
 //  "encoding/json"
 )
@@ -25,14 +25,6 @@ const (
     TravelState
 )
 
-type class int
-
-const (
-    // Game state enumeration
-    Fighter class = iota
-    Rogue
-)
-
 type direction int
 
 const (
@@ -42,6 +34,41 @@ const (
     South
     West
 )
+
+type class int
+
+const (
+    // Game state enumeration
+    Fighter class = iota
+    Rogue
+    Cleric
+)
+
+func convertClassEnumToString(classEnum class) string {
+    var buffer bytes.Buffer
+
+    if classEnum == Fighter {
+        buffer.WriteString("Fighter")
+    } else if classEnum == Rogue {
+        buffer.WriteString("Rogue")
+    } else if classEnum == Cleric {
+        buffer.WriteString("Cleric")
+    }
+
+    return buffer.String()
+}
+
+func convertClassStringToEnum(classString string) class {
+    var selectedClass class = Fighter
+    if strings.ToLower(classString) == "fighter" {
+        selectedClass = Fighter
+    } else if strings.ToLower(classString) == "rogue" {
+        selectedClass = Rogue
+    } else if strings.ToLower(classString) == "cleric" {
+        selectedClass = Cleric
+    }
+    return selectedClass
+}
 
 const (
     // Regex patterns
@@ -83,18 +110,12 @@ type character struct {
     Strength int
     // The character's agility
     Dexterity int
+    // The character's "knowing of all things"
+    Wisdom int
 }
 
 func (char character) classString() string {
-    var buffer bytes.Buffer
-
-    if char.Class == Fighter {
-        buffer.WriteString("Fighter")
-    } else if char.Class == Rogue {
-        buffer.WriteString("Rogue")
-    }
-
-    return buffer.String()
+    return convertClassEnumToString(char.Class)
 }
 
 type townState struct {
@@ -166,16 +187,15 @@ func rollCharacter(command *bot.Cmd) (msg string) {
     // Roll 3d6 for Str and Dex.
     str := rollDice("3d6")
     dex := rollDice("3d6")
+    wis := rollDice("3d6")
     // Figure out what class.
-    var selectedClass class
-    if len(command.Args) == 0 || command.Args[0] == "Fighter" {
-        selectedClass = Fighter
-    } else if command.Args[0] == "Rogue" {
-        selectedClass = Rogue
+    var selectedClass class = Fighter
+    if len(command.Args) > 0 {
+        selectedClass = convertClassStringToEnum(command.Args[0])
     }
     // Add the character to the list of characters.
     characters[command.User.Nick] = character{
-        command.User.Nick, selectedClass, str, dex,
+        command.User.Nick, selectedClass, str, dex, wis,
     }
     // Build the message.
     buffer.WriteString(command.User.Nick)
@@ -183,8 +203,10 @@ func rollCharacter(command *bot.Cmd) (msg string) {
     buffer.WriteString(characters[command.User.Nick].classString())
     buffer.WriteString("> with STR <")
     buffer.WriteString(strconv.Itoa(str))
-    buffer.WriteString("> and DEX <")
+    buffer.WriteString(">, DEX <")
     buffer.WriteString(strconv.Itoa(dex))
+    buffer.WriteString(">, and WIS <")
+    buffer.WriteString(strconv.Itoa(wis))
     buffer.WriteString(">")
 
     return buffer.String()
@@ -192,8 +214,8 @@ func rollCharacter(command *bot.Cmd) (msg string) {
 
 func createCharacter(command *bot.Cmd) (msg string, err error) {
     var buffer bytes.Buffer
-    // To create a character we need to be in an town state.  
-    if currentGameStateId != TownState {
+    // To create a character we need to be in an idle state.  
+    if currentGameStateId != TownState || isInParty(command) {
         buffer.WriteString(command.User.Nick)
         buffer.WriteString(" cannot create a character now")
     } else {
@@ -215,6 +237,8 @@ func characterStats(command *bot.Cmd) (msg string, err error) {
         buffer.WriteString(strconv.Itoa(characters[command.User.Nick].Strength))
         buffer.WriteString("> DEX <")
         buffer.WriteString(strconv.Itoa(characters[command.User.Nick].Dexterity))
+        buffer.WriteString("> WIS <")
+        buffer.WriteString(strconv.Itoa(characters[command.User.Nick].Wisdom))
         buffer.WriteString(">")
     } else {
         buffer.WriteString("No character exists for you. Try !createcharacter")
@@ -255,12 +279,25 @@ func isInParty(command *bot.Cmd) (bool) {
     return inParty
 }
 
+func removeFromParty(command *bot.Cmd) {
+    var index int
+    for i, v := range theParty {
+        if v.Name == command.User.Nick {
+            index = i
+            break
+        }
+    }
+    theParty = append(theParty[:index], theParty[index+1:]...)
+}
+
 func leaveParty(command *bot.Cmd) (msg string, err error) {
     var buffer bytes.Buffer
     if currentGameStateId != TownState || !isInParty(command) {
         buffer.WriteString(command.User.Nick)
         buffer.WriteString(" can't leave the party now")
     } else if _, ok := characters[command.User.Nick]; ok {
+        // Physically removes the user's character from the party array.
+        removeFromParty(command)
         buffer.WriteString(command.User.Nick)
         buffer.WriteString(" left the party")
     } else {
@@ -278,7 +315,7 @@ func listParty(command *bot.Cmd) (msg string, err error) {
     } else {
         for _, element := range theParty {
             if !first {
-                buffer.WriteString(" ,")
+                buffer.WriteString(", ")
             }
             buffer.WriteString(element.Name)
             buffer.WriteString(" <")
@@ -313,6 +350,14 @@ func move(command *bot.Cmd) (msg string, err error) {
         }
     }
     return buffer.String(), nil
+}
+
+func shop(command *bot.Cmd) (msg string, err error) {
+    return "A bunch of crap!", nil
+}
+
+func dickSlap(command *bot.Cmd) (msg string, err error) {
+    return "Boticus slowly whips it out, then he slaps syntac, gently. Just the way he likes.", nil 
 }
 
 func rollDice(dice string) (int) {
@@ -374,6 +419,12 @@ func init() {
     initializeGame()
 
     bot.RegisterCommand(
+        "dickslap",
+        "Give's syntac what he wants",
+        "",
+        dickSlap)
+
+    bot.RegisterCommand(
         "describe",
         "Describes the party's current location",
         "",
@@ -414,4 +465,10 @@ func init() {
         "Moves the party in the given direction",
         "",
         move)
+
+    bot.RegisterCommand(
+        "shop",
+        "Lists items in the Waterdeep marketplace. You can purchase <weapons>, <armor>",
+        "",
+        shop)
 }
